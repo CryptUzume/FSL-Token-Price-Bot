@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: fsl-token-price-bot
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node index.js
+    envVars:
+      - key: DISCORD_TOKEN
+        value: 
+      - key: UPDATE_FREQUENCY
+        value: "28800000"  # 例：8時間ごと (ms)
+      - key: UPDATE_STATUS
+        value: "on"
+      - key: BOARDCAST
+        value: "on"
+      - key: TARGET_CHANNEL_IDS
+        value: "xxxxxxxxxxxxx"
+      - key: MESSAGE_TYPE
+        value: "embed"
+      - key: CHAIN
+        value: "bsc" # 例: bsc
+      - key: PAIR_HASH
+        value: "0x..." # 対象トークンのペアID
