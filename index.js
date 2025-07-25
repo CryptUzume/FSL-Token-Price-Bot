@@ -1,83 +1,76 @@
-require('dotenv').config();
 const { Client, GatewayIntentBits } = require('discord.js');
-const express = require("express");
-const { fetchPrices } = require('./utils');
+const fetch = require('node-fetch');
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
-const app = express();
-const PORT = process.env.PORT || 3000;
+// Discord Bot Token（環境変数または直接記述）
+const DISCORD_TOKEN = process.env.DISCORD_TOKEN || 'YOUR_DISCORD_BOT_TOKEN';
+const CHANNEL_ID = process.env.CHANNEL_ID || 'YOUR_CHANNEL_ID';
 
-// Discord Bot Token
-const TOKEN = process.env.DISCORD_BOT_TOKEN;
-if (!TOKEN) {
-  throw new Error("DISCORD_BOT_TOKEN が設定されていません（Secretsに登録してください）");
-}
-
-// トークン設定
-const TOKEN_IDS = {
+// 対象トークンのID（CoinGecko）
+const tokenIds = {
   GMT: 'stepn',
   GST: 'green-satoshi-token',
-  GGT: 'go-game-token'
+  GGT: 'go-game-token',
 };
 
-const CHANNEL_IDS = {
-  GMT: '1367887693446643804',
-  GST: '1367887745086787594',
-  GGT: '1367888140534153266'
-};
-
-const TOKEN_EMOJIS = {
-  GMT: '🟡',
-  GST: '⚪',
-  GGT: '🟣'
-};
-
-// Bot準備完了時
-client.once('ready', () => {
-  console.log(`✅ Logged in as ${client.user.tag}`);
-  updatePrices();
-  setInterval(updatePrices, 5 * 60 * 1000); // 5分ごとに実行
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages],
 });
 
-// 価格更新関数（utils を使用）
-async function updatePrices() {
-  for (const symbol in TOKEN_IDS) {
-    const id = TOKEN_IDS[symbol];
-    try {
-      console.log(`[DEBUG] Fetching price for ${id}`);
-      const prices = await fetchPrices(id);
+client.once('ready', () => {
+  console.log(`✅ Logged in as ${client.user.tag}`);
+  postPrices(); // 初回起動時に即実行
+  setInterval(postPrices, 60 * 60 * 1000); // 毎時更新（1時間）
+});
 
-      if (!prices) {
-        console.warn(`[WARN] ${symbol} の価格取得に失敗しました`);
-        continue;
-      }
+async function fetchPrices() {
+  const ids = Object.values(tokenIds).join(',');
+  const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`;
 
-      const usd = prices.usd.toFixed(3);
-      const jpy = prices.jpy.toFixed(2);
-      const emoji = TOKEN_EMOJIS[symbol] || '';
-      const newName = `${emoji} ${symbol}: $${usd} / ¥${jpy}`;
-
-      const channel = await client.channels.fetch(CHANNEL_IDS[symbol]);
-      await channel.setName(newName);
-      console.log(`[INFO] Updated channel ${symbol}: ${newName}`);
-
-      await new Promise(resolve => setTimeout(resolve, 5000)); // レート制限対策
-
-    } catch (error) {
-      console.error(`[ERROR] Failed to update channel ${symbol}: ${error.message}`);
-      await new Promise(resolve => setTimeout(resolve, 10000));
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`CoinGecko API error: ${response.status}`);
     }
+
+    const data = await response.json();
+    const prices = {};
+
+    for (const [symbol, id] of Object.entries(tokenIds)) {
+      if (data[id] && data[id].usd) {
+        prices[symbol] = data[id].usd.toFixed(6);
+      } else {
+        console.warn(`[WARN] ${symbol} の価格取得に失敗しました`);
+        prices[symbol] = '取得失敗';
+      }
+    }
+
+    return prices;
+  } catch (err) {
+    console.error('[ERROR] 価格取得失敗:', err.message);
+    return null;
   }
 }
 
-// Expressサーバー（Ping用）
-app.get("/", (req, res) => {
-  res.send("Bot is alive!");
-});
+async function postPrices() {
+  const channel = await client.channels.fetch(CHANNEL_ID);
+  if (!channel) {
+    console.error('[ERROR] Discordチャンネルが見つかりません');
+    return;
+  }
 
-app.listen(PORT, () => {
-  console.log(`🌐 Web server is running at http://localhost:${PORT}`);
-});
+  const prices = await fetchPrices();
+  if (!prices) {
+    channel.send('❌ トークン価格の取得に失敗しました。しばらくして再試行します。');
+    return;
+  }
 
-// Botログイン
-client.login(TOKEN);
+  const now = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
+  const message = `🪙 トークン価格（${now} 更新）\n\n` +
+    Object.entries(prices)
+      .map(([symbol, price]) => `・${symbol}: $${price}`)
+      .join('\n');
+
+  channel.send(message);
+}
+
+client.login(DISCORD_TOKEN);
