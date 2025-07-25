@@ -1,5 +1,5 @@
 services:
-  - type: background
+  - type: worker  # ← ここを web → worker に変更
     name: fsl-token-price-bot
     env: node
     plan: free
@@ -21,4 +21,4 @@ services:
       - key: CHAIN
         value: "bsc"
       - key: PAIR_HASH
-        value: "0x..."  # トークンのペアIDを正しく入力
+        value: "0x..."  # 正しい値に置き換えてください
