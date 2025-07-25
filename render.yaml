@@ -1,5 +1,5 @@
 services:
-  - type: worker  # ← ここを web → worker に変更
+  - type: worker  # ✅ 修正：web → worker（ポート不要）
     name: fsl-token-price-bot
     env: node
     plan: free
@@ -7,9 +7,9 @@ services:
     startCommand: node index.js
     envVars:
       - key: DISCORD_TOKEN
-        value: your_actual_token_here
+        value: your_actual_token_here  # ✅ あなたの実トークン
       - key: UPDATE_FREQUENCY
-        value: "3600000"  # 1時間ごと（ms）
+        value: "3600000"  # ✅ 1時間（ミリ秒）
       - key: UPDATE_STATUS
         value: "on"
       - key: BOARDCAST
@@ -21,4 +21,4 @@ services:
       - key: CHAIN
         value: "bsc"
       - key: PAIR_HASH
-        value: "0x..."  # 正しい値に置き換えてください
+        value: "0x..."  # 必要に応じて変更
