@@ -3,7 +3,7 @@ const axios = require('axios');
 require('dotenv').config();
 
 const TOKEN = process.env.DISCORD_TOKEN;
-const UPDATE_FREQUENCY = parseInt(process.env.UPDATE_FREQUENCY) || 3600000;
+const UPDATE_FREQUENCY = parseInt(process.env.UPDATE_FREQUENCY) || 7200000; // デフォルト2時間
 const UPDATE_STATUS = process.env.UPDATE_STATUS === 'on';
 const BOARDCAST = process.env.BOARDCAST === 'on';
 const TARGET_CHANNEL_IDS = (process.env.TARGET_CHANNEL_IDS || '').split(',');
@@ -21,62 +21,64 @@ const tokens = [
   { id: 'go-game-token', symbol: 'GGT', emoji: '🟣' },
 ];
 
-async function fetchPrices() {
+// まとめて価格取得。リトライ機能付き（429対応）
+async function fetchPrices(tokenIds, retries = 3) {
+  const url = `https://api.coingecko.com/api/v3/simple/price?ids=${tokenIds}&vs_currencies=usd,jpy`;
   try {
-    const ids = tokens.map(t => t.id).join(',');
-    const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd,jpy`;
     const { data } = await axios.get(url);
+    console.log(`[DEBUG] fetchPrices success for: ${tokenIds}`);
     return data;
   } catch (err) {
-    console.error(`[ERROR] fetchPrices 全体取得失敗: ${err.message}`);
+    if (err.response && err.response.status === 429 && retries > 0) {
+      console.warn(`[WARN] 429 Too Many Requests: リトライします。残り回数: ${retries}, 5秒待機中...`);
+      await new Promise(r => setTimeout(r, 5000));
+      return fetchPrices(tokenIds, retries - 1);
+    }
+    console.error(`[ERROR] fetchPrices failed: ${err.message}`);
     return null;
   }
 }
 
 async function updateChannels() {
-  const prices = await fetchPrices();
+  const ids = tokens.map(t => t.id).join(',');
+  const prices = await fetchPrices(ids);
+
   if (!prices) {
-    console.warn('[WARN] 価格データ取得に失敗したため更新処理を中止します');
+    console.warn(`[WARN] 価格データ取得に失敗したため更新処理を中止します`);
     return;
   }
 
   for (const token of tokens) {
     const price = prices[token.id];
     if (!price || !price.usd || !price.jpy) {
-      console.warn(`[WARN] ${token.symbol} の価格情報が不正または見つかりません`);
+      console.warn(`[WARN] ${token.symbol} の価格情報が不正またはありません`);
       continue;
     }
 
     const text = `${token.emoji} ${token.symbol}: $${price.usd.toFixed(3)} / ¥${price.jpy.toFixed(2)}`;
-    console.log(`[INFO] 更新対象: ${token.symbol} 価格テキスト: ${text}`);
+    console.log(`[INFO] Updated channel ${token.symbol}: ${text}`);
 
     for (const channelId of TARGET_CHANNEL_IDS) {
-      const channel = await client.channels.fetch(channelId).catch(() => null);
-      if (!channel) {
-        console.warn(`[WARN] チャンネルID ${channelId} が取得できません`);
-        continue;
-      }
-      if (!channel.isTextBased()) {
-        console.warn(`[WARN] チャンネルID ${channelId} はテキストチャンネルではありません`);
-        continue;
-      }
-
-      console.log(`[DEBUG] 送信先チャンネル: ${channel.name} (${channel.id})`);
-
       try {
+        const channel = await client.channels.fetch(channelId);
+        if (!channel || !channel.isTextBased()) {
+          console.warn(`[WARN] チャンネルID ${channelId} がテキストチャンネルではありません`);
+          continue;
+        }
+
         if (MESSAGE_TYPE === 'embed') {
           const embed = new EmbedBuilder()
             .setTitle(`${token.symbol} Price`)
             .setDescription(text)
             .setColor(0x00FFAA)
             .setTimestamp();
+
           await channel.send({ embeds: [embed] });
         } else {
           await channel.send(text);
         }
-        console.log(`[INFO] 送信成功: ${channel.name} (${channel.id})`);
       } catch (e) {
-        console.error(`[ERROR] 送信失敗: ${channel.name} (${channel.id}) - ${e.message}`);
+        console.error(`[ERROR] チャンネルID ${channelId} への送信失敗: ${e.message}`);
       }
     }
   }
@@ -91,18 +93,7 @@ client.once('ready', () => {
   }
 });
 
-// 🌐 ダミーWebサーバー（Render Free プラン回避用）
-const http = require('http');
-http.createServer((_, res) => {
-  res.write('Bot is running');
-  res.end();
-}).listen(process.env.PORT || 10000, () => {
-  console.log(`🌐 Web server is running at http://localhost:${process.env.PORT || 10000}`);
-});
-
-client.login(TOKEN);
-
-// --- ExpressでRenderのポート要求を満たすためだけの簡易サーバー ---
+// Express で Render のポートバインド要件を満たす（無料プラン対策）
 const express = require("express");
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -114,3 +105,5 @@ app.get("/", (req, res) => {
 app.listen(PORT, () => {
   console.log(`🌐 Web server is running at http://localhost:${PORT}`);
 });
+
+client.login(TOKEN);
