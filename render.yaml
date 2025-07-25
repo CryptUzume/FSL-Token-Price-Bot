@@ -1,5 +1,5 @@
 services:
-  - type: worker
+  - type: web
     name: fsl-token-price-bot
     env: node
     plan: free
@@ -8,18 +8,14 @@ services:
     autoDeploy: true
     envVars:
       - key: DISCORD_TOKEN
-        value: your_actual_token_here
-      - key: UPDATE_FREQUENCY
-        value: "3600000"  # 1時間ごと
-      - key: UPDATE_STATUS
-        value: "on"
-      - key: BOARDCAST
-        value: "on"
+        value: your_actual_token
       - key: TARGET_CHANNEL_IDS
         value: "1367887693446643804,1367887745086787594,1367888140534153266"
+      - key: UPDATE_STATUS
+        value: "on"
+      - key: UPDATE_FREQUENCY
+        value: "3600000"
+      - key: BOARDCAST
+        value: "on"
       - key: MESSAGE_TYPE
         value: "embed"
-      - key: CHAIN
-        value: "bsc"
-      - key: PAIR_HASH
-        value: "0x..."  # 必要に応じて正しく入力

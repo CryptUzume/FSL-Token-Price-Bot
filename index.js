@@ -82,3 +82,17 @@ http.createServer((_, res) => {
 });
 
 client.login(TOKEN);
+
+// --- ExpressでRenderのポート要求を満たすためだけの簡易サーバー ---
+const express = require("express");
+const app = express();
+const PORT = process.env.PORT || 10000;
+
+app.get("/", (req, res) => {
+  res.send("Bot is running!");
+});
+
+app.listen(PORT, () => {
+  console.log(`🌐 Web server is running at http://localhost:${PORT}`);
+});
+
