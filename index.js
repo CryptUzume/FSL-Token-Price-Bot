@@ -1,89 +1,64 @@
-const { Client, GatewayIntentBits } = require('discord.js');
-const fetch = require('node-fetch');
+const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
+const axios = require('axios');
+require('dotenv').config();
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
-
-const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
-const UPDATE_FREQUENCY = Number(process.env.UPDATE_FREQUENCY) || 3600000; // default: 1 hour
+const TOKEN = process.env.DISCORD_TOKEN;
+const UPDATE_FREQUENCY = parseInt(process.env.UPDATE_FREQUENCY) || 3600000;
 const UPDATE_STATUS = process.env.UPDATE_STATUS === 'on';
 const BOARDCAST = process.env.BOARDCAST === 'on';
-const TARGET_CHANNEL_IDS = process.env.TARGET_CHANNEL_IDS || '';
+const TARGET_CHANNEL_IDS = (process.env.TARGET_CHANNEL_IDS || '').split(',');
 const MESSAGE_TYPE = process.env.MESSAGE_TYPE || 'embed';
+const CHAIN = process.env.CHAIN || 'bsc';
+const PAIR_HASH = process.env.PAIR_HASH || '';
 
-const channelIds = TARGET_CHANNEL_IDS.split(',').map(id => id.trim()).filter(Boolean);
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages],
+});
 
-if (channelIds.length === 0) {
-  console.error("❌ エラー: TARGET_CHANNEL_IDS が設定されていません。");
-  process.exit(1);
+const tokens = [
+  { id: 'stepn', symbol: 'GMT', emoji: '🟡' },
+  { id: 'green-satoshi-token', symbol: 'GST', emoji: '⚪' },
+  { id: 'go-game-token', symbol: 'GGT', emoji: '🟣' },
+];
+
+async function fetchPrices(tokenId) {
+  try {
+    const url = `https://api.coingecko.com/api/v3/simple/price?ids=${tokenId}&vs_currencies=usd,jpy`;
+    const { data } = await axios.get(url);
+    const price = data[tokenId];
+    if (!price || !price.usd || !price.jpy) throw new Error("価格情報が不正または見つかりません");
+    return { usd: price.usd, jpy: price.jpy };
+  } catch (err) {
+    console.error(`[ERROR] fetchPrices(${tokenId}) 失敗: ${err.message}`);
+    return null;
+  }
 }
 
-async function fetchPrices() {
-  const prices = [];
-
-  const coins = [
-    { name: 'GMT', id: 'stepn' },
-    { name: 'GST', id: 'green-satoshi-token' },
-    { name: 'GGT', id: 'go-game-token' }
-  ];
-
-  for (const coin of coins) {
-    const url = `https://api.coingecko.com/api/v3/simple/price?ids=${coin.id}&vs_currencies=usd,jpy`;
-
-    try {
-      console.log(`[DEBUG] Fetching price for ${coin.id}`);
-      const res = await fetch(url);
-      const json = await res.json();
-
-      if (json[coin.id] && json[coin.id].usd !== undefined && json[coin.id].jpy !== undefined) {
-        prices.push({ name: coin.name, usd: json[coin.id].usd, jpy: json[coin.id].jpy });
-      } else {
-        console.warn(`[WARN] ${coin.name} の価格取得に失敗しました`);
-      }
-    } catch (err) {
-      console.error(`[ERROR] fetchPrices(${coin.id}) 失敗:`, err);
+async function updateChannels() {
+  for (const token of tokens) {
+    const price = await fetchPrices(token.id);
+    if (!price) {
+      console.warn(`[WARN] ${token.symbol} の価格取得に失敗しました`);
+      continue;
     }
-  }
 
-  return prices;
-}
+    const text = `${token.emoji} ${token.symbol}: $${price.usd.toFixed(3)} / ¥${price.jpy.toFixed(2)}`;
+    console.log(`[INFO] Updated channel ${token.symbol}: ${text}`);
 
-async function postPrices() {
-  const prices = await fetchPrices();
-  if (prices.length === 0) {
-    console.warn("⚠️ 投稿する価格データがありません");
-    return;
-  }
-
-  for (const id of channelIds) {
-    const channel = await client.channels.fetch(id).catch(err => {
-      console.error(`❌ チャンネルID ${id} の取得に失敗:`, err.message);
-    });
-
-    if (!channel) continue;
-
-    for (const p of prices) {
-      const message = `🔹 **${p.name}**: $${p.usd.toFixed(3)} / ¥${p.jpy.toFixed(2)}`;
+    for (const channelId of TARGET_CHANNEL_IDS) {
+      const channel = await client.channels.fetch(channelId).catch(() => null);
+      if (!channel || !channel.isTextBased()) continue;
 
       if (MESSAGE_TYPE === 'embed') {
-        await channel.send({
-          embeds: [
-            {
-              title: `💰 ${p.name} 価格情報`,
-              description: message,
-              color: 0x00cc99,
-              timestamp: new Date().toISOString()
-            }
-          ]
-        }).catch(err => {
-          console.error(`❌ ${p.name} の送信失敗:`, err.message);
-        });
+        const embed = new EmbedBuilder()
+          .setTitle(`${token.symbol} Price`)
+          .setDescription(text)
+          .setColor(0x00FFAA)
+          .setTimestamp();
+        await channel.send({ embeds: [embed] }).catch(console.error);
       } else {
-        await channel.send(message).catch(err => {
-          console.error(`❌ ${p.name} の送信失敗:`, err.message);
-        });
+        await channel.send(text).catch(console.error);
       }
-
-      console.info(`[INFO] Updated channel ${p.name}: ${message}`);
     }
   }
 }
@@ -91,13 +66,19 @@ async function postPrices() {
 client.once('ready', () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
 
-  if (BOARDCAST) {
-    postPrices();
-  }
-
+  if (BOARDCAST) updateChannels();
   if (UPDATE_STATUS) {
-    setInterval(postPrices, UPDATE_FREQUENCY);
+    setInterval(updateChannels, UPDATE_FREQUENCY);
   }
 });
 
-client.login(DISCORD_TOKEN);
+// 🌐 ダミーWebサーバー（Render Free プラン回避用）
+const http = require('http');
+http.createServer((_, res) => {
+  res.write('Bot is running');
+  res.end();
+}).listen(process.env.PORT || 10000, () => {
+  console.log(`🌐 Web server is running at http://localhost:${process.env.PORT || 10000}`);
+});
+
+client.login(TOKEN);
