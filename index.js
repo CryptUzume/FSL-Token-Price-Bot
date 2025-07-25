@@ -13,8 +13,8 @@ console.log("[DEBUG] TARGET_CHANNEL_IDS =", TARGET_CHANNEL_IDS);
 
 const TOKENS = [
   { id: 'stepn', symbol: 'GMT', emoji: '🟡' },
-  { id: 'green-satoshi-token', symbol: 'GST', emoji: '\26aa' },
-  { id: 'go-game-token', symbol: 'GGT', emoji: '🔹' }
+  { id: 'green-satoshi-token', symbol: 'GST', emoji: '⚪' },
+  { id: 'go-game-token', symbol: 'GGT', emoji: '🟣' }
 ];
 
 const fetchPrices = async () => {
