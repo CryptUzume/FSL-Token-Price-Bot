@@ -7,18 +7,19 @@ services:
     startCommand: node index.js
     envVars:
       - key: DISCORD_TOKEN
-        value: 
+        value: your_actual_token_here
       - key: UPDATE_FREQUENCY
-        value: "28800000"  # 例：8時間ごと (ms)
+        value: "3600000"  # 1時間ごと（ms）
       - key: UPDATE_STATUS
         value: "on"
       - key: BOARDCAST
         value: "on"
       - key: TARGET_CHANNEL_IDS
-        value: "xxxxxxxxxxxxx"
+        value: "1367887693446643804,1367887745086787594,1367888140534153266"
       - key: MESSAGE_TYPE
         value: "embed"
       - key: CHAIN
-        value: "bsc" # 例: bsc
+        value: "bsc"
       - key: PAIR_HASH
-        value: "0x..." # 対象トークンのペアID
+        value: "0x..."  # 必要なら正しく入力
+
