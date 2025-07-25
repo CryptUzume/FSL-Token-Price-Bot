@@ -1,75 +1,88 @@
-// token-price-bot/index.js
-const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
-const axios = require('axios');
 require('dotenv').config();
+const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
+const express = require('express');
+const axios = require('axios');
 
-const TOKEN = process.env.DISCORD_TOKEN;
-const UPDATE_FREQUENCY = parseInt(process.env.UPDATE_FREQUENCY) || 3600000;
-const UPDATE_STATUS = process.env.UPDATE_STATUS === 'on';
-const BOARDCAST = process.env.BOARDCAST === 'on';
-const TARGET_CHANNEL_IDS = (process.env.TARGET_CHANNEL_IDS || '').split(',');
-const MESSAGE_TYPE = process.env.MESSAGE_TYPE || 'embed';
+const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
+const TARGET_CHANNEL_IDS = process.env.TARGET_CHANNEL_IDS
+  ? process.env.TARGET_CHANNEL_IDS.split(',').map(id => id.trim())
+  : [];
+
+const MESSAGE_TYPE = 'text'; // 'text' or 'embed'
+const INTERVAL_MINUTES = 10;
+const PORT = process.env.PORT || 10000;
 
 console.log("[DEBUG] TARGET_CHANNEL_IDS =", TARGET_CHANNEL_IDS);
 
+const app = express();
+app.get('/', (req, res) => {
+  res.send('Bot is running.');
+});
+app.listen(PORT, () => {
+  console.log(`🌐 Web server is running at http://localhost:${PORT}`);
+});
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages],
 });
 
-const tokens = [
-  { id: 'stepn', symbol: 'GMT', emoji: '🟡' },
-  { id: 'green-satoshi-token', symbol: 'GST', emoji: '⚪' },
-  { id: 'go-game-token', symbol: 'GGT', emoji: '🟣' },
-];
+client.once('ready', () => {
+  console.log(`✅ Logged in as ${client.user.tag}`);
+  updatePrices();
+  setInterval(updatePrices, INTERVAL_MINUTES * 60 * 1000);
+});
 
-async function fetchPricesWithRetry(ids, retries = 3, delay = 5000) {
-  const idsParam = ids.join(',');
-  for (let i = 0; i < retries; i++) {
+async function fetchPrices() {
+  const ids = ['stepn', 'green-satoshi-token', 'go-game-token'];
+  const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids.join(',')}&vs_currencies=usd,jpy`;
+
+  let retries = 3;
+  while (retries > 0) {
     try {
-      const url = `https://api.coingecko.com/api/v3/simple/price?ids=${idsParam}&vs_currencies=usd,jpy`;
-      const { data } = await axios.get(url);
-      console.debug(`[DEBUG] fetchPrices success for: ${idsParam}`);
-      return data;
+      const res = await axios.get(url);
+      console.log("[DEBUG] fetchPrices success for:", ids.join(','));
+      return res.data;
     } catch (err) {
-      if (err.response && err.response.status === 429) {
-        console.warn(`[WARN] 429 Too Many Requests: リトライします。残り回数: ${retries - i - 1}, ${delay / 1000}秒待機中...`);
-        await new Promise(res => setTimeout(res, delay));
+      if (err.response?.status === 429) {
+        retries--;
+        console.warn(`[WARN] 429 Too Many Requests: リトライします。残り回数: ${retries}, 5秒待機中...`);
+        await new Promise(resolve => setTimeout(resolve, 5000));
       } else {
-        console.error(`[ERROR] fetchPrices failed: ${err.message}`);
+        console.error("[ERROR] fetchPrices failed:", err.message);
         break;
       }
     }
   }
+  console.warn("[WARN] 価格データ取得に失敗したため更新処理を中止します");
   return null;
 }
 
-async function updateChannels() {
-  const ids = tokens.map(t => t.id);
-  const prices = await fetchPricesWithRetry(ids);
-  if (!prices) {
-    console.warn('[WARN] 価格データ取得に失敗したため更新処理を中止します');
-    return;
-  }
+async function updatePrices() {
+  const prices = await fetchPrices();
+  if (!prices) return;
+
+  const tokens = [
+    { id: 'stepn', symbol: 'GMT', emoji: '🟡' },
+    { id: 'green-satoshi-token', symbol: 'GST', emoji: '⚪' },
+    { id: 'go-game-token', symbol: 'GGT', emoji: '🟣' }
+  ];
 
   for (const token of tokens) {
-    const price = prices[token.id];
-    if (!price) {
-      console.warn(`[WARN] ${token.symbol} の価格が見つかりません`);
+    const data = prices[token.id];
+    if (!data) {
+      console.warn(`[WARN] ${token.symbol} の価格取得に失敗しました`);
       continue;
     }
-    const text = `${token.emoji} ${token.symbol}: $${price.usd.toFixed(3)} / \u00a5${price.jpy.toFixed(2)}`;
-    console.info(`[INFO] Updated channel ${token.symbol}: ${text}`);
+
+    const usd = data.usd.toFixed(3);
+    const jpy = data.jpy.toFixed(2);
+    const text = `${token.emoji} ${token.symbol}: $${usd} / ¥${jpy}`;
 
     for (const channelId of TARGET_CHANNEL_IDS) {
       const channel = await client.channels.fetch(channelId).catch(err => {
-        console.error(`[ERROR] チャンネル取得失敗 (${channelId}): ${err.message}`);
-        return null;
+        console.error(`[ERROR] チャンネル ${channelId} の取得に失敗:`, err.message);
       });
-      if (!channel || !channel.isTextBased()) {
-        console.warn(`[WARN] チャンネル無効または非テキスト形式: ${channelId}`);
-        continue;
-      }
+      if (!channel || !channel.send) continue;
 
       if (MESSAGE_TYPE === 'embed') {
         const embed = new EmbedBuilder()
@@ -77,38 +90,19 @@ async function updateChannels() {
           .setDescription(text)
           .setColor(0x00FFAA)
           .setTimestamp();
-        await channel.send({ embeds: [embed] }).catch(err => {
-          console.error(`[ERROR] メッセージ送信失敗 (${token.symbol}): ${err.message}`);
-        });
+
+        await channel.send({ embeds: [embed] })
+          .then(() => console.log(`[SEND] Sent embed to ${channelId}`))
+          .catch(err => console.error(`[ERROR] Failed to send embed to ${channelId}:`, err));
       } else {
-        await channel.send(text).catch(err => {
-          console.error(`[ERROR] メッセージ送信失敗 (${token.symbol}): ${err.message}`);
-        });
+        await channel.send(text)
+          .then(() => console.log(`[SEND] Sent text to ${channelId}`))
+          .catch(err => console.error(`[ERROR] Failed to send text to ${channelId}:`, err));
       }
     }
+
+    console.log(`[INFO] Updated channel ${token.symbol}: ${text}`);
   }
 }
 
-client.once('ready', () => {
-  console.log(`✅ Logged in as ${client.user.tag}`);
-
-  if (BOARDCAST) updateChannels();
-  if (UPDATE_STATUS) {
-    setInterval(updateChannels, UPDATE_FREQUENCY);
-  }
-});
-
-// 🌐 ダミーWebサーバー（Render Free プラン回避用）
-const express = require("express");
-const app = express();
-const PORT = process.env.PORT || 10000;
-
-app.get("/", (req, res) => {
-  res.send("Bot is running!");
-});
-
-app.listen(PORT, () => {
-  console.log(`🌐 Web server is running at http://localhost:${PORT}`);
-});
-
-client.login(TOKEN);
+client.login(DISCORD_TOKEN);
