@@ -3,6 +3,8 @@ const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
 const axios = require('axios');
 require('dotenv').config();
 
+console.log("[DEBUG] TARGET_CHANNEL_IDS =", TARGET_CHANNEL_IDS);
+
 const TOKEN = process.env.DISCORD_TOKEN;
 const UPDATE_FREQUENCY = parseInt(process.env.UPDATE_FREQUENCY) || 3600000;
 const UPDATE_STATUS = process.env.UPDATE_STATUS === 'on';
