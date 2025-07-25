@@ -9,7 +9,7 @@ services:
       - key: DISCORD_TOKEN
         value: your_actual_token_here
       - key: UPDATE_FREQUENCY
-        value: "10800000"
+        value: "3600000"  # 1時間ごと（ms）
       - key: UPDATE_STATUS
         value: "on"
       - key: BOARDCAST
