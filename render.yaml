@@ -1,5 +1,5 @@
 services:
-  - type: web
+  - type: background
     name: fsl-token-price-bot
     env: node
     plan: free
@@ -9,7 +9,7 @@ services:
       - key: DISCORD_TOKEN
         value: your_actual_token_here
       - key: UPDATE_FREQUENCY
-        value: "3600000"  # 1時間ごと（ms）
+        value: "10800000"
       - key: UPDATE_STATUS
         value: "on"
       - key: BOARDCAST
@@ -21,5 +21,4 @@ services:
       - key: CHAIN
         value: "bsc"
       - key: PAIR_HASH
-        value: "0x..."  # 必要なら正しく入力
-
+        value: "0x..."  # 必要なら正しく設定
