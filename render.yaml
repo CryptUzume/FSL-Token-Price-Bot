@@ -21,4 +21,4 @@ services:
       - key: CHAIN
         value: "bsc"
       - key: PAIR_HASH
-        value: "0x..."  # 必要なら正しく設定
+        value: "0x..."  # トークンのペアIDを正しく入力
