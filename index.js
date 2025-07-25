@@ -3,14 +3,15 @@ const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
 const axios = require('axios');
 require('dotenv').config();
 
-console.log("[DEBUG] TARGET_CHANNEL_IDS =", TARGET_CHANNEL_IDS);
-
 const TOKEN = process.env.DISCORD_TOKEN;
 const UPDATE_FREQUENCY = parseInt(process.env.UPDATE_FREQUENCY) || 3600000;
 const UPDATE_STATUS = process.env.UPDATE_STATUS === 'on';
 const BOARDCAST = process.env.BOARDCAST === 'on';
 const TARGET_CHANNEL_IDS = (process.env.TARGET_CHANNEL_IDS || '').split(',');
 const MESSAGE_TYPE = process.env.MESSAGE_TYPE || 'embed';
+
+console.log("[DEBUG] TARGET_CHANNEL_IDS =", TARGET_CHANNEL_IDS);
+
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages],
