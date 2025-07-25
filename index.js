@@ -1,15 +1,14 @@
+// token-price-bot/index.js
 const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
 const axios = require('axios');
 require('dotenv').config();
 
 const TOKEN = process.env.DISCORD_TOKEN;
-const UPDATE_FREQUENCY = parseInt(process.env.UPDATE_FREQUENCY) || 7200000; // デフォルト2時間
+const UPDATE_FREQUENCY = parseInt(process.env.UPDATE_FREQUENCY) || 3600000;
 const UPDATE_STATUS = process.env.UPDATE_STATUS === 'on';
 const BOARDCAST = process.env.BOARDCAST === 'on';
 const TARGET_CHANNEL_IDS = (process.env.TARGET_CHANNEL_IDS || '').split(',');
 const MESSAGE_TYPE = process.env.MESSAGE_TYPE || 'embed';
-const CHAIN = process.env.CHAIN || 'bsc';
-const PAIR_HASH = process.env.PAIR_HASH || '';
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages],
@@ -21,64 +20,67 @@ const tokens = [
   { id: 'go-game-token', symbol: 'GGT', emoji: '🟣' },
 ];
 
-// まとめて価格取得。リトライ機能付き（429対応）
-async function fetchPrices(tokenIds, retries = 3) {
-  const url = `https://api.coingecko.com/api/v3/simple/price?ids=${tokenIds}&vs_currencies=usd,jpy`;
-  try {
-    const { data } = await axios.get(url);
-    console.log(`[DEBUG] fetchPrices success for: ${tokenIds}`);
-    return data;
-  } catch (err) {
-    if (err.response && err.response.status === 429 && retries > 0) {
-      console.warn(`[WARN] 429 Too Many Requests: リトライします。残り回数: ${retries}, 5秒待機中...`);
-      await new Promise(r => setTimeout(r, 5000));
-      return fetchPrices(tokenIds, retries - 1);
+async function fetchPricesWithRetry(ids, retries = 3, delay = 5000) {
+  const idsParam = ids.join(',');
+  for (let i = 0; i < retries; i++) {
+    try {
+      const url = `https://api.coingecko.com/api/v3/simple/price?ids=${idsParam}&vs_currencies=usd,jpy`;
+      const { data } = await axios.get(url);
+      console.debug(`[DEBUG] fetchPrices success for: ${idsParam}`);
+      return data;
+    } catch (err) {
+      if (err.response && err.response.status === 429) {
+        console.warn(`[WARN] 429 Too Many Requests: リトライします。残り回数: ${retries - i - 1}, ${delay / 1000}秒待機中...`);
+        await new Promise(res => setTimeout(res, delay));
+      } else {
+        console.error(`[ERROR] fetchPrices failed: ${err.message}`);
+        break;
+      }
     }
-    console.error(`[ERROR] fetchPrices failed: ${err.message}`);
-    return null;
   }
+  return null;
 }
 
 async function updateChannels() {
-  const ids = tokens.map(t => t.id).join(',');
-  const prices = await fetchPrices(ids);
-
+  const ids = tokens.map(t => t.id);
+  const prices = await fetchPricesWithRetry(ids);
   if (!prices) {
-    console.warn(`[WARN] 価格データ取得に失敗したため更新処理を中止します`);
+    console.warn('[WARN] 価格データ取得に失敗したため更新処理を中止します');
     return;
   }
 
   for (const token of tokens) {
     const price = prices[token.id];
-    if (!price || !price.usd || !price.jpy) {
-      console.warn(`[WARN] ${token.symbol} の価格情報が不正またはありません`);
+    if (!price) {
+      console.warn(`[WARN] ${token.symbol} の価格が見つかりません`);
       continue;
     }
-
-    const text = `${token.emoji} ${token.symbol}: $${price.usd.toFixed(3)} / ¥${price.jpy.toFixed(2)}`;
-    console.log(`[INFO] Updated channel ${token.symbol}: ${text}`);
+    const text = `${token.emoji} ${token.symbol}: $${price.usd.toFixed(3)} / \u00a5${price.jpy.toFixed(2)}`;
+    console.info(`[INFO] Updated channel ${token.symbol}: ${text}`);
 
     for (const channelId of TARGET_CHANNEL_IDS) {
-      try {
-        const channel = await client.channels.fetch(channelId);
-        if (!channel || !channel.isTextBased()) {
-          console.warn(`[WARN] チャンネルID ${channelId} がテキストチャンネルではありません`);
-          continue;
-        }
+      const channel = await client.channels.fetch(channelId).catch(err => {
+        console.error(`[ERROR] チャンネル取得失敗 (${channelId}): ${err.message}`);
+        return null;
+      });
+      if (!channel || !channel.isTextBased()) {
+        console.warn(`[WARN] チャンネル無効または非テキスト形式: ${channelId}`);
+        continue;
+      }
 
-        if (MESSAGE_TYPE === 'embed') {
-          const embed = new EmbedBuilder()
-            .setTitle(`${token.symbol} Price`)
-            .setDescription(text)
-            .setColor(0x00FFAA)
-            .setTimestamp();
-
-          await channel.send({ embeds: [embed] });
-        } else {
-          await channel.send(text);
-        }
-      } catch (e) {
-        console.error(`[ERROR] チャンネルID ${channelId} への送信失敗: ${e.message}`);
+      if (MESSAGE_TYPE === 'embed') {
+        const embed = new EmbedBuilder()
+          .setTitle(`${token.symbol} Price`)
+          .setDescription(text)
+          .setColor(0x00FFAA)
+          .setTimestamp();
+        await channel.send({ embeds: [embed] }).catch(err => {
+          console.error(`[ERROR] メッセージ送信失敗 (${token.symbol}): ${err.message}`);
+        });
+      } else {
+        await channel.send(text).catch(err => {
+          console.error(`[ERROR] メッセージ送信失敗 (${token.symbol}): ${err.message}`);
+        });
       }
     }
   }
@@ -93,7 +95,7 @@ client.once('ready', () => {
   }
 });
 
-// Express で Render のポートバインド要件を満たす（無料プラン対策）
+// 🌐 ダミーWebサーバー（Render Free プラン回避用）
 const express = require("express");
 const app = express();
 const PORT = process.env.PORT || 10000;
